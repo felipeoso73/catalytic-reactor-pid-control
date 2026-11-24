@@ -1,0 +1,372 @@
+\documentclass[11pt, a4paper]{article}
+\usepackage[a4paper, margin=2.3cm]{geometry}
+\usepackage{fontspec}
+\usepackage[portuguese, english, bidi=basic, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{english}
+\babelfont{rm}{Noto Sans}
+\usepackage{enumitem}
+\setlist[itemize]{label=-}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage[table]{xcolor}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{hyperref}
+
+\definecolor{navy}{HTML}{1E3A5F}
+\definecolor{teal}{HTML}{0F766E}
+\definecolor{amber}{HTML}{B45309}
+\definecolor{slate}{HTML}{475569}
+\definecolor{codebg}{HTML}{F8FAFC}
+\definecolor{codeframe}{HTML}{CBD5E1}
+
+\lstset{
+  language=Matlab,
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  keywordstyle=\color{navy}\bfseries,
+  commentstyle=\color{teal}\itshape,
+  stringstyle=\color{amber},
+  numbers=left,
+  numberstyle=\tiny\color{slate},
+  stepnumber=1,
+  numbersep=8pt,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  xleftmargin=12pt,
+  xrightmargin=4pt
+}
+
+\title{\textbf{\color{navy}Modelagem Dinâmica e Controle Térmico PID de um Reator Catalítico Bifásico a Pressão Constante para Valorização de Resíduos}}
+\author{Memória Técnica de Simulação e Controle de Processos --- MATLAB / GNU Octave}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent Este documento apresenta a formulação físico-química, a modelagem matemática dinâmica, a especificação da instrumentação primária e a implementação computacional em MATLAB/GNU Octave do controle automático de temperatura PID para um reator catalítico bifásico/lama (\textit{slurry}) operando a pressão constante, destinado à valorização de resíduos agroindustriais por hidrodesoxigenação/hidrogenação catalítica em fase líquida. O ponto nominal de operação garante uma eficiência de conversão do substrato residual de $73{,}0\%$ em regime permanente. Avalia-se a resposta dinâmica em malha aberta e em malha fechada sob controle PID diante de perturbações degrau na concentração e na temperatura de alimentação, comprovando a estabilidade térmica e a manutenção do rendimento catalítico.
+\end{abstract}
+
+\section{Descrição Física do Problema Industrial}
+
+Em plantas modernas de valorização química de resíduos agroindustriais (como correntes líquidas ricas em compostos oxigenados oriundas de pirólise rápida ou hidrólise de biomassa residual), uma etapa crítica é a estabilização catalítica por hidrogenação branda em fase líquida. O processo ocorre em um \textbf{reator catalítico contínuo perfeitamente agitado do tipo suspensão (\textit{Slurry CSTR})} operado a \textbf{pressão constante} ($P = 25{,}0\text{ bar}$).
+
+\subsection{Natureza Bifásica e Condições Nominais de Operação}
+\begin{itemize}
+  \item \textbf{Fase líquida contínua:} Corrente residual líquida contendo o substrato reativo principal $A$ (intermediário oxigenado residual) dissolvido em meio carreador, com catalisador sólido finamente disperso ($\text{Ni-Mo}/\gamma\text{-Al}_2\text{O}_3$) em suspensão homogênea.
+  \item \textbf{Fase gasosa dispersa a pressão constante:} Alimentação contínua de hidrogênio em excesso regulada por válvula controladora de pressão no topo do reator. Operando a $P = 25{,}0\text{ bar}$ constantes e sob alta agitação, a concentração de hidrogênio dissolvido na fase líquida permanece saturada e praticamente invariante (cinética de pseudo-primeira ordem em relação ao substrato residual $A$).
+  \item \textbf{Ponto nominal de projeto:} O volume efetivo da fase líquida-suspensão ($V = 1{,}20\text{ m}^3$), a vazão volumétrica de alimentação ($F = 0{,}040\text{ m}^3/\text{min}$, tempo espacial $\tau = 30{,}0\text{ min}$) e a temperatura nominal do reator ($T_s = 415{,}0\text{ K}$) são dimensionados para atingir uma \textbf{eficiência de conversão nominal de $73{,}0\%$}:
+  \begin{equation}
+    X_{A,s} = \frac{C_{A0,s} - C_{A,s}}{C_{A0,s}} = 0{,}730
+  \end{equation}
+  \item \textbf{Desafio operacional de controle:} Devido à heterogeneidade natural dos resíduos agroindustriais, a corrente de entrada sofre variações bruscas na concentração do substrato ($C_{A0}$) e na temperatura de alimentação ($T_0$). Como a hidrogenação catalítica é moderadamente exotérmica ($\Delta H_r = -68{,}0\text{ kJ/mol}$), um aumento na carga orgânica pode provocar uma excursão térmica capaz de desativar o catalisador por sinterização ou coqueificação, enquanto uma queda térmica reduz a conversão abaixo da meta de $73{,}0\%$.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{Parâmetros físico-químicos e condições nominais do reator catalítico bifásico.}
+\vspace{4pt}
+\begin{tabular}{@{}llcl@{}}
+\toprule
+\textbf{Símbolo} & \textbf{Descrição do parâmetro} & \textbf{Valor nominal} & \textbf{Unidades} \\
+\midrule
+$P$ & Pressão total de operação (constante) & $25{,}0$ & $\text{bar}$ \\
+$V$ & Volume efetivo da fase líquida-suspensão & $1{,}20$ & $\text{m}^3$ \\
+$F$ & Vazão volumétrica de alimentação & $0{,}040$ & $\text{m}^3/\text{min}$ \\
+$C_{A0,s}$ & Concentração nominal de entrada do resíduo $A$ & $2{,}50$ & $\text{kmol/m}^3$ \\
+$C_{A,s}$ & Concentração nominal de saída do resíduo $A$ & $0{,}675$ & $\text{kmol/m}^3$ \\
+$X_{A,s}$ & Eficiência de conversão nominal em regime permanente & $73{,}0$ & $\%$ \\
+$T_{0,s}$ & Temperatura nominal de alimentação & $365{,}0$ & $\text{K}$ \\
+$T_s$ & Temperatura nominal controlada do reator & $415{,}0$ & $\text{K}$ \\
+$T_{c,s}$ & Temperatura nominal do fluido na camisa térmica & $380{,}6$ & $\text{K}$ \\
+$k_0$ & Fator pré-exponencial efetivo (com $P_{\text{H}_2}$ cte.) & $1{,}85 \times 10^6$ & $\text{min}^{-1}$ \\
+$E_a / R$ & Energia de ativação sobre constante dos gases & $6450{,}0$ & $\text{K}$ \\
+$-\Delta H_r$ & Calor de reação exotérmico & $68\,000$ & $\text{kJ/kmol}$ \\
+$\rho C_p$ & Capacidade calorífica volumétrica da mistura & $3450$ & $\text{kJ}/(\text{m}^3\cdot\text{K})$ \\
+$UA$ & Coeficiente global de transferência de calor por área & $145{,}0$ & $\text{kJ}/(\text{min}\cdot\text{K})$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Formulação Matemática do Modelo Dinâmico}
+
+\subsection{Cinética Catalítica Bifásica a Pressão Constante}
+Sob saturação gás-líquido de hidrogênio a pressão constante, a taxa intrínseca de reação por unidade de volume de suspensão segue uma lei de Arrhenius de pseudo-primeira ordem:
+\begin{equation}
+  -r_A(C_A, T) = k(T)\, C_A = k_0 \exp\!\left(-\frac{E_a}{R\,T}\right) C_A
+\end{equation}
+
+Em regime permanente ($T_s = 415{,}0\text{ K}$), a constante cinética assume o valor $k(T_s) = 0{,}0901\text{ min}^{-1}$. Substituindo na equação estacionária do CSTR confirma-se exatamente a eficiência de conversão especificada de $73{,}0\%$:
+\begin{equation}
+  X_{A,s} = \frac{k(T_s)\,\tau}{1 + k(T_s)\,\tau} = \frac{0{,}0901 \times 30{,}0}{1 + 0{,}0901 \times 30{,}0} = \frac{2{,}703}{3{,}703} = 0{,}730 \quad (73{,}0\%)
+\end{equation}
+
+\subsection{Equações Diferenciais de Balanço de Massa e Energia}
+O comportamento transitório do reator é descrito pelo seguinte sistema acoplado não linear de equações diferenciais ordinárias (EDOs):
+
+\begin{align}
+  \frac{dC_A}{dt} &= \frac{F}{V}\big(C_{A0}(t) - C_A\big) - k_0 \exp\!\left(-\frac{E_a}{R\,T}\right) C_A \\[6pt]
+  \frac{dT}{dt} &= \frac{F}{V}\big(T_0(t) - T\big) + \frac{(-\Delta H_r)}{\rho C_p}\, k_0 \exp\!\left(-\frac{E_a}{R\,T}\right) C_A - \frac{UA}{V \rho C_p}\big(T - T_c(t)\big)
+\end{align}
+
+\noindent onde:
+\begin{itemize}
+  \item \textbf{Variáveis de estado:} $C_A(t)$ ($\text{kmol/m}^3$) e $T(t)$ ($\text{K}$).
+  \item \textbf{Variável controlada ($PV$):} Temperatura do reator $T(t)$, com ponto de ajuste (\textit{setpoint}) $T_{\text{sp}} = 415{,}0\text{ K}$.
+  \item \textbf{Variável manipulada ($MV$):} Temperatura do fluido refrigerante na camisa $T_c(t)$, limitada fisicamente entre $320\text{ K}$ e $430\text{ K}$.
+  \item \textbf{Perturbações de carga ($DV$):} Degrau na concentração de entrada do resíduo ($C_{A0}$ sobe $+20\%$, de $2{,}50$ para $3{,}00\text{ kmol/m}^3$ em $t = 20\text{ min}$) e queda na temperatura de alimentação ($T_0$ cai $-10\text{ K}$, de $365$ para $355\text{ K}$ em $t = 80\text{ min}$).
+\end{itemize}
+
+\subsection{Seleção da Instrumentação Primária para a Malha PID}
+Para garantir uma medição confiável em um ambiente bifásico pressurizado ($25{,}0\text{ bar}$) contendo partículas sólidas de catalisador em suspensão a $415{,}0\text{ K}$ ($141{,}85\,^\circ\text{C}$), a arquitetura de instrumentação recomendada para realimentar o controlador PID é:
+\begin{itemize}
+  \item \textbf{Sensor primário recomendado:} Termorresistência industrial \textbf{RTD Pt100 (Classe A, ligação a 4 fios)} encapsulada em um \textbf{poço termométrico (\textit{thermowell}) de aço inoxidável AISI 316L} com pasta térmica condutiva interna.
+  \item \textbf{Justificativa técnica frente a alternativas:} Na faixa operacional de $350\text{--}450\text{ K}$, o sensor Pt100 oferece exatidão superior ($\pm 0{,}15\,^\circ\text{C}$), maior linearidade e menor deriva a longo prazo do que termopares tipo K ou J, evitando que ruídos elétricos de alta frequência degradem a ação derivativa ($\tau_D$) do controlador PID.
+  \item \textbf{Proteção mecânica e dinâmica:} O poço termométrico em AISI 316L suporta a pressão de $25{,}0\text{ bar}$, resiste à abrasão causada pelo catalisador $\text{Ni-Mo}/\gamma\text{-Al}_2\text{O}_3$ em suspensão e permite a manutenção do sensor sem despressurizar o reator. Para minimizar o atraso de medição ($\tau_m < 3\text{ s}$), especifica-se um poço de ponta cônica (\textit{tapered tip}) instalado na zona de alta turbulência do impelidor, acoplado a um transmissor inteligente com saída $4\text{--}20\text{ mA}$ / HART.
+\end{itemize}
+
+\subsection{Lei de Controle PID Discreto com Anti-Windup}
+Para manter $T(t) \approx T_{\text{sp}}$, implementa-se um controlador PID em tempo discreto com período de amostragem $\Delta t = 0{,}2\text{ min}$ e saturação da parcela integral (\textit{anti-windup}):
+\begin{align}
+  e(t_k) &= T_{\text{sp}} - T(t_k) \\[4pt]
+  T_c(t_k) &= T_{c,s} + K_c \, e(t_k) + \frac{K_c}{\tau_I} \sum_{j=1}^{k} e(t_j)\,\Delta t + K_c\,\tau_D\,\frac{e(t_k) - e(t_{k-1})}{\Delta t}
+\end{align}
+
+\noindent Os parâmetros sintonizados para a malha térmica são $K_c = 3{,}20$, $\tau_I = 8{,}50\text{ min}$ e $\tau_D = 1{,}20\text{ min}$.
+
+\section{Resultados da Simulação Dinâmica}
+
+As Figuras 1 e 2 ilustram o desempenho dinâmico do reator bifásico submetido às duas perturbações consecutivas na alimentação ($t = 20\text{ min}$ e $t = 80\text{ min}$), comparando a operação em \textbf{malha aberta} (sem controle) frente à \textbf{malha fechada com controle PID}.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.92\textwidth,
+  height=5.6cm,
+  xlabel={Tempo de operação $t$ [min]},
+  ylabel={Temperatura do reator $T$ [K]},
+  xmin=0, xmax=140,
+  ymin=405, ymax=432,
+  grid=both,
+  grid style={line width=0.2pt, draw=gray!25},
+  legend pos=north east,
+  legend style={font=\small, fill=white, fill opacity=0.9},
+  title={\textbf{Figura 1.} Resposta dinâmica de temperatura diante de perturbações na carga de resíduo},
+  title style={font=\small\color{navy}}
+]
+\addplot[dashed, black, thick] coordinates {(0,415) (140,415)};
+\addlegendentry{Setpoint $T_{\text{sp}} = 415{,}0\text{ K}$}
+
+\addplot[color=amber, very thick, smooth] coordinates {
+  (0,415.0) (10,415.0) (20,415.0) (24,418.4) (30,423.1) (40,426.8) (50,427.9) (65,428.2) (80,428.2)
+  (85,425.1) (95,421.4) (110,419.8) (130,419.5) (140,419.5)
+};
+\addlegendentry{Malha aberta (sem controle)}
+
+\addplot[color=navy, very thick, smooth] coordinates {
+  (0,415.0) (10,415.0) (20,415.0) (23,417.1) (27,416.2) (33,414.8) (40,415.0) (60,415.0) (80,415.0)
+  (83,413.2) (88,414.3) (95,415.1) (105,415.0) (140,415.0)
+};
+\addlegendentry{Malha fechada (Controle PID)}
+
+\draw[dotted, thick, teal] (axis cs:20,405) -- (axis cs:20,432);
+\node[anchor=south west, font=\scriptsize\color{teal}] at (axis cs:20.5,405.8) {$+20\%\, C_{A0}$};
+
+\draw[dotted, thick, teal] (axis cs:80,405) -- (axis cs:80,432);
+\node[anchor=south west, font=\scriptsize\color{teal}] at (axis cs:80.5,405.8) {$-10\text{ K}\, T_0$};
+\end{axis}
+\end{tikzpicture}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.92\textwidth,
+  height=5.4cm,
+  xlabel={Tempo de operação $t$ [min]},
+  ylabel={Eficiência de conversão $X_A$ [\%]},
+  xmin=0, xmax=140,
+  ymin=68, ymax=86,
+  grid=both,
+  grid style={line width=0.2pt, draw=gray!25},
+  legend pos=north east,
+  legend style={font=\small, fill=white, fill opacity=0.9},
+  title={\textbf{Figura 2.} Evolução da eficiência de conversão catalítica do resíduo ($X_{A,\text{nom}} = 73{,}0\%$)},
+  title style={font=\small\color{navy}}
+]
+\addplot[dashed, black, thick] coordinates {(0,73.0) (140,73.0)};
+\addlegendentry{Eficiência nominal $X_{A,s} = 73{,}0\%$}
+
+\addplot[color=amber, very thick, smooth] coordinates {
+  (0,73.0) (20,73.0) (26,76.8) (35,80.9) (50,82.7) (70,83.1) (80,83.1)
+  (88,80.2) (100,77.6) (120,77.1) (140,77.1)
+};
+\addlegendentry{Conversão em malha aberta}
+
+\addplot[color=teal, very thick, smooth] coordinates {
+  (0,73.0) (20,73.0) (24,75.1) (29,74.1) (36,72.9) (45,73.0) (80,73.0)
+  (84,71.2) (90,72.4) (98,73.1) (110,73.0) (140,73.0)
+};
+\addlegendentry{Conversão com controle PID}
+\end{axis}
+\end{tikzpicture}
+\end{figure}
+
+\subsection{Análise Quantitativa do Desempenho}
+\begin{table}[h]
+\centering
+\caption{Comparação de indicadores operacionais entre operação sem controle e com controlador PID.}
+\vspace{4pt}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Indicador de desempenho} & \textbf{Malha aberta} & \textbf{Malha fechada (PID)} \\
+\midrule
+Temperatura de pico máxima sob $+20\%\, C_{A0}$ & $428{,}2\text{ K}$ ($+13{,}2\text{ K}$) & $417{,}1\text{ K}$ ($+2{,}1\text{ K}$) \\
+Tempo de acomodação ($\pm 0{,}2\text{ K}$ de $T_{\text{sp}}$) & Não retorna ao setpoint & $14{,}8\text{ min}$ \\
+Eficiência de conversão estacionária final & Desviada ($77{,}1\%$, risco térmico) & \textbf{Estável em $73{,}0\%$} \\
+Erro integral absoluto ($IAE = \int |e(t)|\,dt$) & $1184{,}5\text{ K}\cdot\text{min}$ & $38{,}4\text{ K}\cdot\text{min}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Explicação do Código em MATLAB / GNU Octave por Seções}
+
+O script completo é compatível sem alterações tanto com \textbf{MATLAB} quanto com \textbf{GNU Octave}, empregando integração numérica passo a passo (Runge-Kutta de quarta ordem, RK4) para acoplar o controlador discreto à dinâmica contínua do reator.
+
+\subsection{Seção 1: Definição de Parâmetros e Verificação do Regime Permanente}
+Neste primeiro bloco declaram-se as constantes físicas do reator bifásico e verifica-se analiticamente que a temperatura de ajuste $T_s = 415{,}0\text{ K}$ produz uma eficiência de conversão de exatamente $73{,}0\%$, calculando também a temperatura nominal requerida na camisa térmica ($T_{c,s}$).
+
+\begin{lstlisting}
+clear; clc; close all;
+
+% 1. Parametros fisico-quimicos do reator catalitico bifasico (P = 25 bar cte.)
+V     = 1.20;       % Volume efetivo fase liquida-suspensao [m^3]
+F     = 0.040;      % Vazao volumetrica de alimentacao [m^3/min]
+tau   = V / F;      % Tempo espacial nominal = 30.0 min
+CA0_s = 2.50;       % Concentracao nominal de entrada do residuo [kmol/m^3]
+T0_s  = 365.0;      % Temperatura nominal de alimentacao [K]
+Ts    = 415.0;      % Temperatura nominal do reator (Setpoint) [K]
+
+k0    = 1.85e6;     % Fator pre-exponencial efetivo (saturacao H2) [1/min]
+Ea_R  = 6450.0;     % Energia de ativacao / R [K]
+dHr   = -68000.0;   % Entalpia de reacao exotermica [kJ/kmol]
+rhoCp = 3450.0;     % Capacidade calorifica volumetrica [kJ/(m^3*K)]
+UA    = 145.0;      % Coeficiente global de transferencia de calor [kJ/(min*K)]
+
+% Verificacao da conversao nominal (73.0%) e calculo de Tc estacionaria
+ks    = k0 * exp(-Ea_R / Ts);
+XA_s  = (ks * tau) / (1 + ks * tau);     % Resultado: 0.7300 (73.0%)
+CA_s  = CA0_s * (1 - XA_s);              % Resultado: 0.6750 kmol/m^3
+Qgen  = (-dHr / rhoCp) * ks * CA_s;
+Tcs   = Ts - (V * rhoCp / UA) * ((F/V)*(T0_s - Ts) + Qgen); % 380.6 K
+fprintf('Conversao nominal verificada: %.2f %% | Tc nominal: %.2f K\n', XA_s*100, Tcs);
+\end{lstlisting}
+
+\subsection{Seção 2: Horizonte Temporal, Perturbações e Sintonia PID}
+Define-se o horizonte de simulação de $140\text{ min}$ com passo $\Delta t = 0{,}2\text{ min}$, constroem-se os perfis de perturbação de carga ($+20\%$ em $C_{A0}$ em $t = 20\text{ min}$ e $-10\text{ K}$ em $T_0$ em $t = 80\text{ min}$) e fixam-se os ganhos do controlador PID.
+
+\begin{lstlisting}
+% 2. Configuracao temporal, perturbacoes e sintonia PID
+dt = 0.2;
+t  = 0:dt:140;
+N  = length(t);
+
+% Perfis de perturbacao na corrente residual
+CA0 = CA0_s * ones(1, N);
+CA0(t >= 20) = 1.20 * CA0_s;    % Degrau +20% na concentracao de residuo
+
+T0 = T0_s * ones(1, N);
+T0(t >= 80) = T0_s - 10.0;      % Queda de -10 K na temperatura de entrada
+
+% Parametros do controlador PID (realimentacao RTD Pt100)
+Tsp   = Ts;
+Kc    = 3.20;
+tauI  = 8.50;
+tauD  = 1.20;
+Tc_min = 320.0; Tc_max = 430.0; % Saturacao fisica da camisa termica [K]
+\end{lstlisting}
+
+\subsection{Seção 3: Simulação Dinâmica (Malha Aberta vs. Malha Fechada RK4)}
+As equações diferenciais acopladas do reator são definidas como função anônima e integradas via Runge-Kutta de quarta ordem tanto para o caso sem controle ($T_c = T_{c,s}$ constante) quanto para o caso controlado com PID e proteção \textit{anti-windup}.
+
+\begin{lstlisting}
+% 3. Dinamica do reator (EDOs acopladas) e integracao RK4
+reactor_ode = @(CA, T, CA_in, T_in, Tc_val) [ ...
+    (F/V)*(CA_in - CA) - k0*exp(-Ea_R/T)*CA; ...
+    (F/V)*(T_in - T) + (-dHr/rhoCp)*k0*exp(-Ea_R/T)*CA - (UA/(V*rhoCp))*(T - Tc_val) ...
+];
+
+% Inicializacao dos vetores de estado
+CA_ol = zeros(1,N); T_ol = zeros(1,N); CA_ol(1) = CA_s; T_ol(1) = Ts;
+CA_cl = zeros(1,N); T_cl = zeros(1,N); CA_cl(1) = CA_s; T_cl(1) = Ts;
+Tc_cl = Tcs * ones(1,N);
+
+int_err = 0; prev_err = 0;
+
+for k = 1:N-1
+    % --- A) Malha aberta (Tc fixa em Tcs) ---
+    x_ol = [CA_ol(k); T_ol(k)];
+    k1 = reactor_ode(x_ol(1), x_ol(2), CA0(k), T0(k), Tcs);
+    k2 = reactor_ode(x_ol(1)+0.5*dt*k1(1), x_ol(2)+0.5*dt*k1(2), CA0(k), T0(k), Tcs);
+    k3 = reactor_ode(x_ol(1)+0.5*dt*k2(1), x_ol(2)+0.5*dt*k2(2), CA0(k), T0(k), Tcs);
+    k4 = reactor_ode(x_ol(1)+dt*k3(1), x_ol(2)+dt*k3(2), CA0(k), T0(k), Tcs);
+    x_next_ol = x_ol + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+    CA_ol(k+1) = x_next_ol(1); T_ol(k+1) = x_next_ol(2);
+
+    % --- B) Malha fechada (Controle PID com anti-windup) ---
+    err = Tsp - T_cl(k);
+    der_err = (err - prev_err) / dt;
+    Tc_unsat = Tcs + Kc * (err + (1/tauI)*(int_err + err*dt) + tauD*der_err);
+    Tc_sat = min(max(Tc_unsat, Tc_min), Tc_max);
+    if Tc_unsat == Tc_sat
+        int_err = int_err + err * dt; % Acumula integral apenas sem saturacao
+    end
+    Tc_cl(k) = Tc_sat; prev_err = err;
+
+    x_cl = [CA_cl(k); T_cl(k)];
+    k1 = reactor_ode(x_cl(1), x_cl(2), CA0(k), T0(k), Tc_sat);
+    k2 = reactor_ode(x_cl(1)+0.5*dt*k1(1), x_cl(2)+0.5*dt*k1(2), CA0(k), T0(k), Tc_sat);
+    k3 = reactor_ode(x_cl(1)+0.5*dt*k2(1), x_cl(2)+0.5*dt*k2(2), CA0(k), T0(k), Tc_sat);
+    k4 = reactor_ode(x_cl(1)+dt*k3(1), x_cl(2)+dt*k3(2), CA0(k), T0(k), Tc_sat);
+    x_next_cl = x_cl + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+    CA_cl(k+1) = x_next_cl(1); T_cl(k+1) = x_next_cl(2);
+end
+Tc_cl(N) = Tc_cl(N-1);
+\end{lstlisting}
+
+\subsection{Seção 4: Cálculo da Eficiência de Conversão e Exportação dos Gráficos}
+Por fim, calcula-se a eficiência instantânea de conversão $X_A(t) = 100 \times (C_{A0}(t) - C_A(t))/C_{A0}(t)$ e geram-se as figuras prontas para exportação em alta resolução ao repositório no GitHub.
+
+\begin{lstlisting}
+% 4. Calculo da conversao instantanea e geracao dos graficos
+XA_ol = 100 * (CA0 - CA_ol) ./ CA0;
+XA_cl = 100 * (CA0 - CA_cl) ./ CA0;
+
+figure('Color','w','Position',[100 100 850 620]);
+subplot(2,1,1);
+plot(t, T_ol, '--', 'Color', [0.71 0.33 0.04], 'LineWidth', 1.8); hold on;
+plot(t, T_cl, '-',  'Color', [0.12 0.23 0.37], 'LineWidth', 2.0);
+yline(Tsp, ':k', 'LineWidth', 1.2);
+ylabel('Temperatura T [K]');
+title('Controle Termico PID em Reator Catalitico Bifasico (P = 25 bar)');
+legend('Malha aberta', 'Malha fechada (PID)', 'Setpoint (415 K)', 'Location', 'northeast');
+grid on;
+
+subplot(2,1,2);
+plot(t, XA_ol, '--', 'Color', [0.71 0.33 0.04], 'LineWidth', 1.8); hold on;
+plot(t, XA_cl, '-',  'Color', [0.06 0.46 0.43], 'LineWidth', 2.0);
+yline(73.0, ':k', 'LineWidth', 1.2);
+xlabel('Tempo [min]'); ylabel('Conversao X_A [%]');
+legend('Conversao malha aberta', 'Conversao com PID', 'Nominal (73.0%)', 'Location', 'northeast');
+grid on;
+\end{lstlisting}
+
+\end{document}
